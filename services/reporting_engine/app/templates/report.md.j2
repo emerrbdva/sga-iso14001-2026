@@ -1,0 +1,40 @@
+# Reporte de Sostenibilidad y Gestión Ambiental
+## {{ report.company_name }} - Periodo: {{ report.reporting_period }}
+
+---
+
+### 1. Política de Gestión Ambiental
+
+**Versión:** {{ report.policy.version }}
+**Aprobada por:** {{ report.policy.approved_by }} en la fecha {{ report.policy.approval_date }}
+
+> {{ report.policy.content }}
+
+---
+
+### 2. Inventario de Emisiones de Gases de Efecto Invernadero (GEI)
+
+{% if report.ghg_inventory %}
+- **Emisiones Totales:** {{ "%.2f"|format(report.ghg_inventory.total_co2e) }} kg CO₂e
+- **Emisiones por Alcance:**
+  - **Alcance 1:** {{ "%.2f"|format(report.ghg_inventory.emissions_by_scope['Alcance 1']) }} kg CO₂e
+  - **Alcance 2:** {{ "%.2f"|format(report.ghg_inventory.emissions_by_scope['Alcance 2']) }} kg CO₂e
+  - **Alcance 3:** {{ "%.2f"|format(report.ghg_inventory.emissions_by_scope['Alcance 3']) }} kg CO₂e
+{% else %}
+No se pudo generar el inventario de GEI para este periodo.
+{% endif %}
+
+---
+
+### 3. Aspectos Ambientales Significativos
+
+A continuación se listan los aspectos ambientales identificados como significativos:
+
+{% for aspect in report.significant_aspects %}
+- **{{ aspect.name }}** ({{ aspect.aspect_type }}): {{ aspect.description }}
+{% else %}
+- No se han identificado aspectos ambientales significativos.
+{% endfor %}
+
+---
+*Este reporte fue generado automáticamente por el Sistema de Gestión Ambiental ISO 14001.*

@@ -1,0 +1,203 @@
+services:
+  core-sga-api:
+    build:
+      context: .
+      dockerfile: ./services/core_sga/Dockerfile
+    container_name: core-sga-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/core_sga:/app
+      - ./shared_models:/app/shared_models
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/sga_db
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-engine-api:
+        condition: service_started
+
+  ai-engine-api:
+    build:
+      context: .
+      dockerfile: ./services/ai_engine/Dockerfile
+    container_name: ai-engine-api
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./services/ai_engine:/app
+      - ./shared_models:/app/shared_models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  risk-engine-api:
+    build:
+      context: .
+      dockerfile: ./services/risk_engine/Dockerfile
+    container_name: risk-engine-api
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./services/risk_engine:/app
+      - ./shared_models:/app/shared_models
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/sga_db
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  compliance-engine-api:
+    build:
+      context: .
+      dockerfile: ./services/compliance_engine/Dockerfile
+    container_name: compliance-engine-api
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./services/compliance_engine:/app
+      - ./shared_models:/app/shared_models
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/sga_db
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      core-sga-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- NUEVO SERVICIO DE OBJETIVOS ---
+  objectives-engine-api:
+    build:
+      context: .
+      dockerfile: ./services/objectives_engine/Dockerfile
+    container_name: objectives-engine-api
+    ports:
+      - "8004:8004"
+    volumes:
+      - ./services/objectives_engine:/app
+      - ./shared_models:/app/shared_models
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/sga_db
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- NUEVO SERVICIO DE HUELLA DE CARBONO ---
+  ghg-engine-api:
+    build:
+      context: .
+      dockerfile: ./services/ghg_engine/Dockerfile
+    container_name: ghg-engine-api
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./services/ghg_engine:/app
+      - ./shared_models:/app/shared_models
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/sga_db
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- NUEVO SERVICIO DE AUDITORÍAS ---
+  audit-engine-api:
+    build:
+      context: .
+      dockerfile: ./services/audit_engine/Dockerfile
+    container_name: audit-engine-api
+    ports:
+      - "8006:8006"
+    volumes:
+      - ./services/audit_engine:/app
+      - ./shared_models:/app/shared_models
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/sga_db
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- NUEVO SERVICIO DE REPORTES ---
+  reporting-engine-api:
+    build:
+      context: .
+      dockerfile: ./services/reporting_engine/Dockerfile
+    container_name: reporting-engine-api
+    ports:
+      - "8007:8007"
+    volumes:
+      - ./services/reporting_engine:/app
+      - ./shared_models:/app/shared_models
+    restart: unless-stopped
+    depends_on:
+      core-sga-api:
+        condition: service_started
+      ghg-engine-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  db:
+    image: postgis/postgis:15-3.4
+    container_name: sga-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=user
+      # --- CAMBIO: Corregido el error de tipeo aquí ---
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=sga_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d sga_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
