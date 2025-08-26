@@ -1,11 +1,21 @@
 from fastapi import FastAPI
-# CAMBIO: Se quita el punto de la importación
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api import router as api_router
 
 app = FastAPI(
     title="Motor de Cumplimiento del SGA - ISO 14001:2026",
-    description="Gestiona las Obligaciones de Cumplimiento y su vínculo con los Aspectos.",
     version="1.0.0"
+)
+
+origins = ["http://localhost:5173", "http://localhost:5174"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix="/api/v1")

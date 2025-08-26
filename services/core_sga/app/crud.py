@@ -41,16 +41,12 @@ def get_aspects(db: Session, skip: int = 0, limit: int = 100):
 def create_aspect(db: Session, aspect: schemas.EnvironmentalAspectCreate) -> models.EnvironmentalAspect:
     AI_SERVICE_URL = "http://ai-engine-api:8001/api/v1/analyze/aspect_type"
     try:
-        response = requests.post(AI_SERVICE_URL, json={"text": aspect.description})
+        response = requests.post(AI_SERVICE_URL, json={"text": aspect.description}, timeout=5)
         if response.status_code == 200:
             ai_data = response.json()
             suggested_type_str = ai_data.get("suggested_category")
-            
-            # Convertimos el string de la IA al miembro del Enum correspondiente
-            aspect.aspect_type = AspectType(suggested_type_str)
-            print(f"Sugerencia de la IA recibida: '{suggested_type_str}'. Reemplazando el tipo de aspecto.")
-        else:
-            print(f"Advertencia: El servicio de IA respondió con el código {response.status_code}. Se usará el valor original.")
+            if suggested_type_str in [item.value for item in schemas.AspectType]:
+                aspect.aspect_type = schemas.AspectType(suggested_type_str)
     except requests.exceptions.RequestException as e:
         print(f"Advertencia: No se pudo conectar con el servicio de IA. Se usará el valor original. Error: {e}")
 
@@ -58,9 +54,4 @@ def create_aspect(db: Session, aspect: schemas.EnvironmentalAspectCreate) -> mod
     db.add(db_aspect)
     db.commit()
     db.refresh(db_aspect)
-    
-    # AJUSTE FINAL: Nos aseguramos de que updated_at tenga un valor en la respuesta inicial
-    if db_aspect.updated_at is None:
-        db_aspect.updated_at = db_aspect.created_at
-        
     return db_aspect
