@@ -1,5 +1,9 @@
 fastapi
 uvicorn[standard]
 pydantic
+pydantic-settings
 requests
+httpx
+tenacity
+structlog
 Jinja2
