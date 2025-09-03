@@ -1,0 +1,149 @@
+# Deploy to Google Cloud Run
+#
+# SECURITY & BEST PRACTICES:
+# - This workflow uses Workload Identity Federation (WIF) by default - preferred over JSON keys
+# - Principle of least privilege: Grant only necessary IAM roles to the service account
+# - Consider using environments for production deployments to add approval gates
+# - Scope triggers appropriately (e.g., only deploy specific branches/tags to production)
+# - Review and remove unused authentication option before using in production
+#
+# REQUIRED SETUP:
+# 1. Replace all REPLACE_WITH_* placeholders below with your actual values
+# 2. Enable required Google Cloud APIs (see docs/deployment-cloud-run.md)
+# 3. Create Artifact Registry repository
+# 4. Set up service account with appropriate permissions
+# 5. Configure Workload Identity Federation (recommended) OR add JSON key as secret
+# 6. Remove/comment unused authentication option (A or B)
+
+name: Deploy to Cloud Run
+
+on:
+  # Trigger on push to main branch
+  push:
+    branches: [ main ]
+  
+  # Allow manual dispatch
+  workflow_dispatch:
+  
+  # Example: Deploy on version tags (uncomment when ready for production releases)
+  # push:
+  #   tags: [ 'v*' ]
+
+env:
+  # !! REPLACE THESE PLACEHOLDERS WITH YOUR ACTUAL VALUES !!
+  PROJECT_ID: "REPLACE_WITH_GCP_PROJECT_ID"
+  PROJECT_NUMBER: "REPLACE_WITH_GCP_PROJECT_NUMBER"  # Needed for Workload Identity Federation resource path
+  REGION: "REPLACE_WITH_CLOUD_RUN_REGION"            # e.g. us-central1
+  SERVICE_NAME: "REPLACE_WITH_CLOUD_RUN_SERVICE_NAME"
+  REPO_DOCKER: "contenedores"
+  
+  # Computed values
+  IMAGE: "REPLACE_WITH_CLOUD_RUN_REGION-docker.pkg.dev/REPLACE_WITH_GCP_PROJECT_ID/contenedores/REPLACE_WITH_CLOUD_RUN_SERVICE_NAME"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    # Optional: Add environment protection for production
+    # environment: production
+    
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # AUTHENTICATION OPTION A: Workload Identity Federation (RECOMMENDED)
+      # Remove this section if using JSON key authentication (Option B)
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/${{ env.PROJECT_NUMBER }}/locations/global/workloadIdentityPools/REPLACE_WITH_WIF_POOL_ID/providers/REPLACE_WITH_WIF_PROVIDER_ID'
+          service_account: 'REPLACE_WITH_SERVICE_ACCOUNT_EMAIL'
+
+      # AUTHENTICATION OPTION B: JSON Key (NOT RECOMMENDED - REMOVE IF USING OPTION A)
+      # Uncomment and configure if you must use JSON key authentication
+      # - name: Authenticate to Google Cloud (JSON Key)
+      #   uses: google-github-actions/auth@v2
+      #   with:
+      #     credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      # BUILD LOGIC: Check for Dockerfile and build accordingly
+      - name: Build and push Docker image
+        run: |
+          # Check if Dockerfile exists at repository root
+          if [ -f "Dockerfile" ]; then
+            echo "Found Dockerfile at repository root, building..."
+            DOCKERFILE_PATH="."
+            CONTEXT_PATH="."
+          else
+            echo "No Dockerfile at repository root."
+            echo "This repository has multiple services with individual Dockerfiles."
+            echo "Defaulting to core_sga service. Modify this workflow to build a different service."
+            echo "Available services: $(ls -d services/*/ | xargs -n 1 basename)"
+            
+            # Default to core_sga service (modify as needed)
+            DOCKERFILE_PATH="./services/core_sga/Dockerfile"
+            CONTEXT_PATH="."
+            
+            if [ ! -f "$DOCKERFILE_PATH" ]; then
+              echo "Error: Dockerfile not found at $DOCKERFILE_PATH"
+              echo "Available Dockerfiles:"
+              find . -name "Dockerfile" -type f
+              exit 1
+            fi
+          fi
+
+          # Build and tag the image
+          docker build -f "$DOCKERFILE_PATH" -t "${{ env.IMAGE }}:${{ github.sha }}" -t "${{ env.IMAGE }}:latest" "$CONTEXT_PATH"
+          
+          # Push both tags
+          docker push "${{ env.IMAGE }}:${{ github.sha }}"
+          docker push "${{ env.IMAGE }}:latest"
+
+      # ALTERNATIVE BUILD: Cloud Native Buildpacks (uncomment if preferred over Docker)
+      # Requires pack CLI and may need adjustment for multi-service repos
+      # - name: Build with Cloud Native Buildpacks
+      #   run: |
+      #     # Install pack CLI
+      #     curl -sSL "https://github.com/buildpacks/pack/releases/download/v0.32.1/pack-v0.32.1-linux.tgz" | sudo tar -C /usr/local/bin/ --no-same-owner -xzv pack
+      #     
+      #     # Build with buildpacks (adjust source path as needed)
+      #     pack build "${{ env.IMAGE }}:${{ github.sha }}" --builder gcr.io/buildpacks/builder:v1 --path ./services/core_sga
+      #     docker tag "${{ env.IMAGE }}:${{ github.sha }}" "${{ env.IMAGE }}:latest"
+      #     
+      #     # Push both tags
+      #     docker push "${{ env.IMAGE }}:${{ github.sha }}"
+      #     docker push "${{ env.IMAGE }}:latest"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${{ env.SERVICE_NAME }}" \
+            --image="${{ env.IMAGE }}:${{ github.sha }}" \
+            --region="${{ env.REGION }}" \
+            --platform=managed \
+            --allow-unauthenticated
+            # Optional flags (uncomment and configure as needed):
+            # --memory=512Mi \
+            # --cpu=1 \
+            # --concurrency=80 \
+            # --max-instances=10 \
+            # --min-instances=0 \
+            # --set-env-vars="ENV_VAR1=value1,ENV_VAR2=value2" \
+            # --port=8000
+
+      - name: Get service URL
+        run: |
+          SERVICE_URL=$(gcloud run services describe "${{ env.SERVICE_NAME }}" --region="${{ env.REGION }}" --format="value(status.url)")
+          echo "🚀 Service deployed successfully!"
+          echo "📍 Service URL: $SERVICE_URL"
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_OUTPUT
