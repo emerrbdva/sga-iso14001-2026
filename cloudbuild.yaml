@@ -1,0 +1,32 @@
+steps:
+  # Construye la imagen para cada servicio
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest', '--dockerfile=./services/core_sga/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest', '--dockerfile=./services/ai_engine/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/risk-engine-api:latest', '--dockerfile=./services/risk_engine/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/compliance-engine-api:latest', '--dockerfile=./services/compliance_engine/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/objectives-engine-api:latest', '--dockerfile=./services/objectives_engine/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest', '--dockerfile=./services/ghg_engine/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest', '--dockerfile=./services/audit_engine/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest', '--dockerfile=./services/auth_engine/Dockerfile', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest', '--dockerfile=./services/reporting_engine/Dockerfile', '.']
+
+# Le dice a Cloud Build que suba todas las imágenes construidas a Artifact Registry
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/risk-engine-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/compliance-engine-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/objectives-engine-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest'

@@ -1,0 +1,10 @@
+# Archivos de entorno con secretos
+.env
+
+# Directorios de dependencias de Python
+__pycache__/
+venv/
+*.pyc
+
+# Directorios de dependencias de Node.js (para el frontend)
+/sga-frontend/node_modules
