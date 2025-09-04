@@ -157,7 +157,7 @@ steps:
                   --dockerfile=/workspace/$context_dir/Dockerfile \
                   --destination=$full_base:latest \
                   --destination=$full_base:$SHORT_SHA \
-                  $( [ -n "$extra_tag" ] && echo --destination=$full_base:$extra_tag ) \
+                  $( [ -n \"$extra_tag\" ] && echo --destination=$full_base:$extra_tag ) \
                   --cache=true \
                   --cache-ttl=${_KANIKO_CACHE_TTL} \
                   --verbosity=info
@@ -209,7 +209,8 @@ steps:
           low=$(echo "$out" | grep -o '"LOW":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           unk=$(echo "$out" | grep -o '"SEVERITY_UNSPECIFIED":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           printf '%-40s %-8s %-8s %-8s %-8s %-8s\n' "$image_base" "$crit" "$high" "$med" "$low" "$unk";
-          if [ "${crit:-0}" -gt 0 ]; then
+          if [ "
+${crit:-0}" -gt 0 ]; then
             echo "ALERTA: $image_base con vulnerabilidades CRÍTICAS"
           fi
         done
@@ -250,8 +251,8 @@ steps:
         sign_flag="$(echo "${_SIGN}" | tr '[:upper:]' '[:lower:]')"
         if [ "$sign_flag" != "true" ]; then
           echo "Firma omitida (_SIGN != true)."
-          exit 0
-        fi
+          exit 0;
+        fi;
         source /workspace/services.env
         registry="${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services"
         kms_key="${_KMS_KEY}"
