@@ -216,12 +216,13 @@ steps:
           image="$registry/$image_base:latest"
           out=$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --location "${_AR_REGION}" --format json || echo "{}");
           crit=$(echo "$out" | grep -o '"CRITICAL":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
-            high=$(echo "$out" | grep -o '"HIGH":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
+          high=$(echo "$out" | grep -o '"HIGH":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           med=$(echo "$out" | grep -o '"MEDIUM":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           low=$(echo "$out" | grep -o '"LOW":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           unk=$(echo "$out" | grep -o '"SEVERITY_UNSPECIFIED":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           printf '%-40s %-6s %-6s %-6s %-6s %-6s\n' "$image_base" "$crit" "$high" "$med" "$low" "$unk";
-          if [ "${crit:-0}" -gt 0 ]; then
+          if [ "
+${crit:-0}" -gt 0 ]; then
             echo "ALERTA: $image_base con vulnerabilidades CRÍTICAS"
           fi
         done
