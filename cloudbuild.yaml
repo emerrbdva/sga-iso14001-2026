@@ -27,7 +27,36 @@ substitutions:
   _KMS_KEY: ""                      # gcpkms://... (si vacío => firma keyless cosign)
 
 steps:
-  # Paso 0: Tests (auto-detección)
+  # Paso 0: Función de normalización de servicios
+  - name: gcr.io/cloud-builders/gcloud
+    id: setup-functions
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        echo "Configurando funciones auxiliares..."
+        
+        # Función para normalizar la lista de servicios
+        cat > /workspace/normalize_services.sh << 'EOF'
+        #!/bin/bash
+        normalize_services() {
+          local raw_input="$1"
+          raw_input="$(echo "$raw_input" | tr ',' ' ')"
+          local services_list=""
+          for s in $raw_input; do
+            [ -n "$s" ] || continue
+            services_list+=" $s"
+          done
+          services_list="$(echo "$services_list" | xargs)"
+          echo "$services_list"
+        }
+        EOF
+        
+        chmod +x /workspace/normalize_services.sh
+        echo "Funciones auxiliares configuradas correctamente."
+
+  # Paso 1: Tests (auto-detección)
   - name: gcr.io/cloud-builders/gcloud
     id: tests
     entrypoint: bash
@@ -35,34 +64,31 @@ steps:
       - -c
       - |
         set -euo pipefail
+        source /workspace/normalize_services.sh
+        
         test_flag="$(echo "${_TEST}" | tr '[:upper:]' '[:lower:]')"
         if [ "$test_flag" != "true" ]; then
           echo "Tests omitidos (_TEST != true)."
           exit 0
         fi
-        raw_input="${_SERVICES}"
-        raw_input="$(echo "$raw_input" | tr ',' ' ')"
-        services_list=""
-        for s in $raw_input; do
-          [ -n "$s" ] || continue
-          services_list+=" $s"
-        done
-        services_list="$(echo "$services_list" | xargs)"
-        echo "Servicios: $services_list"
+        
+        services_list=$(normalize_services "${_SERVICES}")
+        echo "Servicios a probar: $services_list"
+        
         failures=0
         for svc in $services_list; do
           dir="services/$svc"
-          [ -d "$dir" ] || { echo "WARN: $dir no existe (saltando tests)"; continue; }
+          [ -d "$dir" ] || { echo "ADVERTENCIA: $dir no existe (saltando tests)"; continue; }
           echo "===> Ejecutando tests en $dir"
           pushd "$dir" >/dev/null
           if [ -f package.json ]; then
             if jq -e '.scripts.test' package.json >/dev/null 2>&1; then
-              echo "Detectado Node.js: npm test"
+              echo "Detectado Node.js: ejecutando npm test"
               (npm ci --ignore-scripts || npm install)
               if ! npm test; then failures=$((failures+1)); fi
             fi
           elif [ -f pyproject.toml ] || ls *.py >/dev/null 2>&1; then
-            echo "Detectado Python: pytest (si disponible)"
+            echo "Detectado Python: verificando pytest"
             python -m pip install --upgrade pip >/dev/null 2>&1 || true
             if grep -qi pytest pyproject.toml 2>/dev/null || grep -i pytest requirements.txt 2>/dev/null; then
               pip install -r requirements.txt >/dev/null 2>&1 || true
@@ -72,7 +98,7 @@ steps:
               echo "Sin suite explícita de tests, saltando."
             fi
           else
-            echo "No se detectó tipo de proyecto con tests. Saltando."
+            echo "No se detectó tipo de proyecto con tests conocidos. Saltando."
           fi
           popd >/dev/null
         done
@@ -80,9 +106,9 @@ steps:
           echo "ERROR: $failures servicio(s) con fallos en tests."
           exit 1
         fi
-        echo "Tests completados sin fallos."
+        echo "Tests completados exitosamente sin fallos."
 
-  # Paso 1: Verificación de Dockerfiles
+  # Paso 2: Verificación de Dockerfiles
   - name: gcr.io/cloud-builders/gcloud
     id: verify-dockerfiles
     entrypoint: bash
@@ -90,17 +116,11 @@ steps:
       - -c
       - |
         set -euo pipefail
-        raw_input="${_SERVICES}"
-        raw_input="$(echo "$raw_input" | tr ',' ' ')"
-        services_list=""
-        for s in $raw_input; do
-          [ -n "$s" ] || continue
-          services_list+=" $s"
-        done
-        services_list="$(echo "$services_list" | xargs)"
+        source /workspace/normalize_services.sh
+        
+        services_list=$(normalize_services "${_SERVICES}")
         echo "Servicios normalizados: $services_list"
-        printf 'services_list="%s"
-' "$services_list" > /workspace/services.env
+        printf 'services_list="%s"\n' "$services_list" > /workspace/services.env
 
         echo "Verificando Dockerfiles..."
         for svc in $services_list; do
@@ -110,15 +130,15 @@ steps:
             if ! grep -Eiq '^(FROM|ARG)' <<< "$first"; then
               echo "ADVERTENCIA: Primera línea de $file no comienza con FROM o ARG: '$first'"
             fi
-            echo "OK: $file"
+            echo "✓ Validado: $file"
           else
-            echo "ERROR: Falta $file" >&2
+            echo "ERROR: Falta el archivo requerido $file" >&2
             exit 1
           fi
         done
-        echo "Verificación completada."
+        echo "Verificación de Dockerfiles completada exitosamente."
 
-  # Paso 2A: Build & Push con Kaniko (si _BUILDER=kaniko)
+  # Paso 3A: Build & Push con Kaniko (si _BUILDER=kaniko)
   - name: gcr.io/kaniko-project/executor:latest
     id: build-and-push-kaniko
     entrypoint: bash
@@ -128,7 +148,7 @@ steps:
         set -euo pipefail
         builder_flag="$(echo "${_BUILDER}" | tr '[:upper:]' '[:lower:]')"
         if [ "$builder_flag" != "kaniko" ]; then
-          echo "Saltando step Kaniko (builder=$builder_flag)"
+          echo "Saltando step Kaniko (builder configurado como: $builder_flag)"
           exit 0
         fi
         source /workspace/services.env
@@ -139,8 +159,8 @@ steps:
           image_base="${svc//_/-}-api"
           full_base="$registry/$image_base"
           context_dir="services/$svc"
-          [ -d "$context_dir" ] || { echo "ERROR: No existe $context_dir"; exit 1; }
-          echo "===> Kaniko build $svc"
+          [ -d "$context_dir" ] || { echo "ERROR: No existe directorio $context_dir"; exit 1; }
+          echo "===> Construyendo imagen para $svc con Kaniko"
           destinations="--destination=$full_base:latest --destination=$full_base:$SHORT_SHA"
           if [ -n "$extra_tag" ]; then
             destinations="$destinations --destination=$full_base:$extra_tag"
@@ -153,9 +173,9 @@ steps:
             --cache-ttl="${_KANIKO_CACHE_TTL}" \
             --verbosity=info
         done
-        echo "Build (Kaniko) completado."
+        echo "Build con Kaniko completado exitosamente."
 
-  # Paso 2B: Build & Push con Docker Buildx (si _BUILDER=docker)
+  # Paso 3B: Build & Push con Docker Buildx (si _BUILDER=docker)
   - name: gcr.io/cloud-builders/docker
     id: build-and-push-docker
     entrypoint: bash
@@ -165,7 +185,7 @@ steps:
         set -euo pipefail
         builder_flag="$(echo "${_BUILDER}" | tr '[:upper:]' '[:lower:]')"
         if [ "$builder_flag" != "docker" ]; then
-          echo "Saltando step Docker buildx (builder=$builder_flag)"
+          echo "Saltando step Docker buildx (builder configurado como: $builder_flag)"
           exit 0
         fi
         source /workspace/services.env
@@ -176,9 +196,9 @@ steps:
           image_base="${svc//_/-}-api"
           full_base="$registry/$image_base"
           context_dir="services/$svc"
-          [ -d "$context_dir" ] || { echo "ERROR: No existe $context_dir"; exit 1; }
+          [ -d "$context_dir" ] || { echo "ERROR: No existe directorio $context_dir"; exit 1; }
           cache_ref="$full_base:buildcache"
-          echo "===> Buildx build $svc"
+          echo "===> Construyendo imagen para $svc con Docker Buildx"
           build_tags="-t $full_base:latest -t $full_base:$SHORT_SHA"
           if [ -n "$extra_tag" ]; then
             build_tags="$build_tags -t $full_base:$extra_tag"
@@ -191,9 +211,9 @@ steps:
             "$context_dir" \
             --push
         done
-        echo "Build (Docker buildx) completado."
+        echo "Build con Docker Buildx completado exitosamente."
 
-  # Paso 3: Escaneo de vulnerabilidades (resumen)
+  # Paso 4: Escaneo de vulnerabilidades (resumen)
   - name: gcr.io/cloud-builders/gcloud
     id: vulnerability-scan
     entrypoint: bash
@@ -203,32 +223,34 @@ steps:
         set -euo pipefail
         scan_flag="$(echo "${_SCAN}" | tr '[:upper:]' '[:lower:]')"
         if [ "$scan_flag" != "true" ]; then
-          echo "Escaneo omitido (_SCAN != true)."
+          echo "Escaneo de vulnerabilidades omitido (_SCAN != true)."
           exit 0
         fi
         source /workspace/services.env
         registry="${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services"
-        echo "Esperando (30s) para que Container Analysis genere ocurrencias..."
+        echo "Esperando análisis de Container Analysis (30s)..."
         sleep 30
         printf '%-40s %-6s %-6s %-6s %-6s %-6s\n' "IMAGE" "CRIT" "HIGH" "MED" "LOW" "UNK"
+        echo "$(printf '=%.0s' {1..76})"
         for svc in $services_list; do
           image_base="${svc//_/-}-api"
           image="$registry/$image_base:latest"
-          out=$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --location "${_AR_REGION}" --format json || echo "{}");
+          out=$(gcloud artifacts docker images describe "$image" \
+                  --project "$PROJECT_ID" --location "${_AR_REGION}" \
+                  --format json 2>/dev/null || echo "{}");
           crit=$(echo "$out" | grep -o '"CRITICAL":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           high=$(echo "$out" | grep -o '"HIGH":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           med=$(echo "$out" | grep -o '"MEDIUM":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           low=$(echo "$out" | grep -o '"LOW":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           unk=$(echo "$out" | grep -o '"SEVERITY_UNSPECIFIED":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           printf '%-40s %-6s %-6s %-6s %-6s %-6s\n' "$image_base" "$crit" "$high" "$med" "$low" "$unk";
-          if [ "
-${crit:-0}" -gt 0 ]; then
-            echo "ALERTA: $image_base con vulnerabilidades CRÍTICAS"
+          if [ "${crit:-0}" -gt 0 ]; then
+            echo "⚠️  ALERTA: $image_base tiene vulnerabilidades CRÍTICAS"
           fi
         done
-        echo "Escaneo finalizado (solo resumen)."
+        echo "Escaneo de vulnerabilidades finalizado (resumen mostrado)."
 
-  # Paso 4: Generación de SBOM (Syft)
+  # Paso 5: Generación de SBOM (Syft)
   - name: ghcr.io/anchore/syft:latest
     id: sbom
     entrypoint: bash
@@ -238,7 +260,7 @@ ${crit:-0}" -gt 0 ]; then
         set -euo pipefail
         sbom_flag="$(echo "${_SBOM}" | tr '[:upper:]' '[:lower:]')"
         if [ "$sbom_flag" != "true" ]; then
-          echo "SBOM omitido (_SBOM != true)."
+          echo "Generación de SBOM omitida (_SBOM != true)."
           exit 0
         fi
         source /workspace/services.env
@@ -250,9 +272,9 @@ ${crit:-0}" -gt 0 ]; then
           echo "Generando SBOM para $image"
           syft "$image" -o spdx-json > "/workspace/sbom/${image_base}.spdx.json"
         done
-        echo "SBOMs generadas."
+        echo "SBOMs generadas exitosamente."
 
-  # Paso 5: Firma (cosign) + attestation SBOM
+  # Paso 6: Firma (cosign) + attestation SBOM
   - name: gcr.io/projectsigstore/cosign:v2.4.0
     id: sign-images
     entrypoint: bash
@@ -262,7 +284,7 @@ ${crit:-0}" -gt 0 ]; then
         set -euo pipefail
         sign_flag="$(echo "${_SIGN}" | tr '[:upper:]' '[:lower:]')"
         if [ "$sign_flag" != "true" ]; then
-          echo "Firma omitida (_SIGN != true)."
+          echo "Firma de imágenes omitida (_SIGN != true)."
           exit 0
         fi
         source /workspace/services.env
@@ -274,15 +296,17 @@ ${crit:-0}" -gt 0 ]; then
           image_base="${svc//_/-}-api"
           image="$registry/$image_base:latest"
           echo "Obteniendo digest de $image"
-          digest=$(gcloud artifacts docker images describe "$image" --location "${_AR_REGION}" --project "$PROJECT_ID" --format 'value(image_summary.digest)' 2>/dev/null || true);
+          digest=$(gcloud artifacts docker images describe "$image" \
+                     --location "${_AR_REGION}" --project "$PROJECT_ID" \
+                     --format 'value(image_summary.digest)' 2>/dev/null || true);
           if [ -z "$digest" ]; then
-            echo "Digest no disponible vía metadata aún; haciendo pull local."
+            echo "Digest no disponible vía metadata; obteniendo con pull local."
             docker pull "$image";
             digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$image" | cut -d'@' -f2);
           fi
-          [ -n "$digest" ] || { echo "ERROR: Digest no obtenido"; exit 1; }
+          [ -n "$digest" ] || { echo "ERROR: No se pudo obtener digest"; exit 1; }
           full_ref="$registry/$image_base@$digest";
-          echo "Firmando $full_ref";
+          echo "Firmando imagen: $full_ref";
           if [ -n "$kms_key" ]; then
             cosign sign --yes --key "$kms_key" "$full_ref";
           else
@@ -291,7 +315,7 @@ ${crit:-0}" -gt 0 ]; then
           if [ "$sbom_flag" = "true" ]; then
             sbom_file="/workspace/sbom/${image_base}.spdx.json";
             if [ -f "$sbom_file" ]; then
-              echo "Attestation SBOM (spdx) -> $full_ref";
+              echo "Creando attestation SBOM (spdx) para $full_ref";
               if [ -n "$kms_key" ]; then
                 cosign attest --yes --key "$kms_key" --predicate "$sbom_file" --type spdx "$full_ref";
               else
@@ -300,9 +324,9 @@ ${crit:-0}" -gt 0 ]; then
             fi
           fi
         done
-        echo "Firma y attestation completadas."
+        echo "Firma y attestation completadas exitosamente."
 
-  # Paso 6: Despliegue opcional a Cloud Run
+  # Paso 7: Despliegue opcional a Cloud Run
   - name: gcr.io/cloud-builders/gcloud
     id: deploy
     entrypoint: bash
@@ -312,7 +336,7 @@ ${crit:-0}" -gt 0 ]; then
         set -euo pipefail
         deploy_flag="$(echo "${_DEPLOY}" | tr '[:upper:]' '[:lower:]')"
         if [ "$deploy_flag" != "true" ]; then
-          echo "Despliegue omitido (_DEPLOY != true)."
+          echo "Despliegue a Cloud Run omitido (_DEPLOY != true)."
           exit 0
         fi
         source /workspace/services.env
@@ -322,7 +346,7 @@ ${crit:-0}" -gt 0 ]; then
           image_base="${svc//_/-}-api"
           image="$registry/$image_base:latest"
           service_name="$image_base"
-          echo "Deploy -> $service_name (imagen: $image)"
+          echo "Desplegando servicio: $service_name (imagen: $image)"
           gcloud run deploy "$service_name" \
             --image="$image" \
             --platform=managed \
@@ -330,9 +354,9 @@ ${crit:-0}" -gt 0 ]; then
             --allow-unauthenticated \
             --project="$PROJECT_ID";
         done
-        echo "Despliegue completado."
+        echo "Despliegue a Cloud Run completado exitosamente."
 
-  # Paso 7: Resumen final
+  # Paso 8: Resumen final
   - name: gcr.io/cloud-builders/gcloud
     id: summary
     entrypoint: bash
@@ -340,18 +364,21 @@ ${crit:-0}" -gt 0 ]; then
       - -c
       - |
         set -euo pipefail
-        echo "=== RESUMEN PIPELINE ==="
-        echo "Servicios: ${_SERVICES}"
-        echo "Builder: ${_BUILDER}"
-        echo "Tests: ${_TEST}"
-        echo "Scan: ${_SCAN}"
-        echo "SBOM: ${_SBOM}"
-        echo "Sign: ${_SIGN}"
-        echo "Deploy: ${_DEPLOY}"
-        echo "Extra tag: ${_EXTRA_TAG}"
-        echo "Región AR: ${_AR_REGION}"
-        echo "Región Deploy: ${_REGION}"
-        echo "========================"
+        echo "========================================="
+        echo "         RESUMEN DEL PIPELINE            "
+        echo "========================================="
+        echo "Servicios procesados: ${_SERVICES}"
+        echo "Builder utilizado: ${_BUILDER}"
+        echo "Tests ejecutados: ${_TEST}"
+        echo "Escaneo de vulnerabilidades: ${_SCAN}"
+        echo "Generación de SBOM: ${_SBOM}"
+        echo "Firma de imágenes: ${_SIGN}"
+        echo "Despliegue a Cloud Run: ${_DEPLOY}"
+        echo "Tag adicional: ${_EXTRA_TAG:-"(ninguno)"}"
+        echo "Región Artifact Registry: ${_AR_REGION}"
+        echo "Región de despliegue: ${_REGION}"
+        echo "========================================="
+        echo "Pipeline completado exitosamente ✓"
 
 images:
   - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest
