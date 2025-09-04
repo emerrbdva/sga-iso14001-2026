@@ -53,7 +53,7 @@ steps:
         for svc in $services_list; do
           dir="services/$svc"
           [ -d "$dir" ] || { echo "WARN: $dir no existe (saltando tests)"; continue; }
-          echo "===> Ejecutando tests en $dir"
+            echo "===> Ejecutando tests en $dir"
           pushd "$dir" >/dev/null
           if [ -f package.json ]; then
             if jq -e '.scripts.test' package.json >/dev/null 2>&1; then
@@ -99,8 +99,7 @@ steps:
         done
         services_list="$(echo "$services_list" | xargs)"
         echo "Servicios normalizados: $services_list"
-        printf 'services_list="%s"
-' "$services_list" > /workspace/services.env
+        printf 'services_list="%s"\n' "$services_list" > /workspace/services.env
 
         echo "Verificando Dockerfiles..."
         for svc in $services_list; do
@@ -221,8 +220,7 @@ steps:
           low=$(echo "$out" | grep -o '"LOW":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           unk=$(echo "$out" | grep -o '"SEVERITY_UNSPECIFIED":[0-9]*' | head -1 | cut -d: -f2 || echo 0);
           printf '%-40s %-6s %-6s %-6s %-6s %-6s\n' "$image_base" "$crit" "$high" "$med" "$low" "$unk";
-          if [ "
-${crit:-0}" -gt 0 ]; then
+          if [ "${crit:-0}" -gt 0 ]; then
             echo "ALERTA: $image_base con vulnerabilidades CRÍTICAS"
           fi
         done
