@@ -1,66 +1,131 @@
+# Cloud Build: construye y publica imágenes de los microservicios SGA
+# Puedes sobreescribir _SERVICES en el trigger o en la invocación:
+#   gcloud builds submit --config=cloudbuild.yaml --substitutions=_SERVICES="core_sga,ai_engine"
+#
+# Formato aceptado para _SERVICES: separado por comas o espacios.
+# Ej: "core_sga,ai_engine" o "core_sga ai_engine"
+#
+# Para desplegar a Cloud Run agrega también: --substitutions=_DEPLOY="true"
+# y asegúrate de que el servicio de Cloud Run y permisos estén configurados.
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  # Lista predeterminada (puedes modificarla). Comas o espacios funcionan.
+  _SERVICES: "core_sga,ai_engine,risk_engine,compliance_engine,objectives_engine,ghg_engine,audit_engine,auth_engine,reporting_engine"
+  # Tag adicional opcional (ej: staging). Dejar vacío si no se usa.
+  _EXTRA_TAG: ""
+  # Controla si se despliega a Cloud Run (true/false)
+  _DEPLOY: "false"
+  # Región por defecto para Cloud Run
+  _REGION: "southamerica-east1"
+
+# Paso 1: Verificación de Dockerfiles
 steps:
-  # Paso de verificación para asegurar que todos los Dockerfile existen y mostrar su primera línea
   - name: gcr.io/cloud-builders/gcloud
     id: verify-dockerfiles
     entrypoint: bash
     args:
       - -c
       - |
-        echo "Verificando Dockerfiles...";
-        set -e
-        SERVICES="core_sga ai_engine risk_engine compliance_engine objectives_engine ghg_engine audit_engine reporting_engine"
-        for s in $SERVICES; do
-          if [ -f services/$s/Dockerfile ]; then
-            first=$(head -n1 services/$s/Dockerfile)
-            echo "OK services/$s/Dockerfile (1a línea: $first)"
+        set -euo pipefail
+        echo "Lista cruda de servicios: '${_SERVICES}'"
+        RAW_LIST="${_SERVICES}"
+        # Reemplaza comas por espacios
+        RAW_LIST="$(echo "$RAW_LIST" | tr ',' ' ')"
+        SERVICES_LIST=""
+        for s in $RAW_LIST; do
+          [ -n "$s" ] || continue
+          SERVICES_LIST+=" $s"
+        done
+        SERVICES_LIST="$(echo "$SERVICES_LIST" | xargs)"
+        echo "Servicios normalizados: $SERVICES_LIST"
+        echo "SERVICES_LIST=\"$SERVICES_LIST\"" > /workspace/services.env
+
+        echo "Verificando existencia de Dockerfiles..."
+        for svc in $SERVICES_LIST; do
+          if [ -f "services/$svc/Dockerfile" ]; then
+            head_line=$(head -n1 "services/$svc/Dockerfile")
+            echo "OK: services/$svc/Dockerfile (1a línea: $head_line)"
           else
-            echo "ERROR: Falta services/$s/Dockerfile" >&2
+            echo "ERROR: Falta services/$svc/Dockerfile" >&2
             exit 1
           fi
         done
         echo "Verificación completada."
 
-  # Construcción de cada servicio (usa como contexto la carpeta del servicio; Dockerfile estándar llamado 'Dockerfile')
+  # Paso 2: Build & Push de todas las imágenes
   - name: gcr.io/cloud-builders/docker
-    id: build-core-sga-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest','services/core_sga']
+    id: build-and-push
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/services.env
+        REGISTRY="us-central1-docker.pkg.dev/$PROJECT_ID/sga-services"
+        echo "Usando registro: $REGISTRY"
+        echo "SHORT_SHA: $SHORT_SHA"
+        echo "EXTRA_TAG: '${_EXTRA_TAG}'"
 
-  - name: gcr.io/cloud-builders/docker
-    id: build-ai-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest','services/ai_engine']
+        for svc in $SERVICES_LIST; do
+          # Nombre de la imagen: reemplaza underscores por guiones y añade sufijo -api
+          # (ej: core_sga -> core-sga-api)
+          IMAGE_BASENAME="${svc//_/-}-api"
+          FULL_BASE="$REGISTRY/$IMAGE_BASENAME"
+          echo "--------------------------------------------------"
+          echo "Construyendo servicio: $svc  ->  $FULL_BASE"
+          docker build \
+            -t "$FULL_BASE:latest" \
+            -t "$FULL_BASE:$SHORT_SHA" \
+            "services/$svc"
 
-  - name: gcr.io/cloud-builders/docker
-    id: build-risk-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/risk-engine-api:latest','services/risk_engine']
+          if [ -n "${_EXTRA_TAG}" ]; then
+            docker tag "$FULL_BASE:latest" "$FULL_BASE:${_EXTRA_TAG}"
+          fi
 
-  - name: gcr.io/cloud-builders/docker
-    id: build-compliance-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/compliance-engine-api:latest','services/compliance_engine']
+          echo "Pushing tags..."
+            docker push "$FULL_BASE:latest"
+            docker push "$FULL_BASE:$SHORT_SHA"
+          if [ -n "${_EXTRA_TAG}" ]; then
+            docker push "$FULL_BASE:${_EXTRA_TAG}"
+          fi
+        done
+        echo "Build & Push completados."
 
-  - name: gcr.io/cloud-builders/docker
-    id: build-objectives-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/objectives-engine-api:latest','services/objectives_engine']
+  # Paso 3 (Opcional): Despliegue a Cloud Run (si _DEPLOY=true)
+  - name: gcr.io/cloud-builders/gcloud
+    id: deploy-services
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        if [ "${_DEPLOY,,}" != "true" ]; then
+          echo "Despliegue omitido (_DEPLOY != true)."
+          exit 0
+        fi
+        source /workspace/services.env
+        REGISTRY="us-central1-docker.pkg.dev/$PROJECT_ID/sga-services"
+        REGION="${_REGION}"
+        echo "Desplegando a Cloud Run región: $REGION"
+        for svc in $SERVICES_LIST; do
+          IMAGE_BASENAME="${svc//_/-}-api"
+          IMAGE="$REGISTRY/$IMAGE_BASENAME:latest"
+          SERVICE_NAME="$IMAGE_BASENAME"
+          echo "Deploy -> Servicio: $SERVICE_NAME  Imagen: $IMAGE"
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="$IMAGE" \
+            --platform=managed \
+            --region="$REGION" \
+            --allow-unauthenticated \
+            --project="$PROJECT_ID"
+        done
+        echo "Despliegue completado."
 
-  - name: gcr.io/cloud-builders/docker
-    id: build-ghg-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest','services/ghg_engine']
-
-  - name: gcr.io/cloud-builders/docker
-    id: build-audit-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest','services/audit_engine']
-
-  - name: gcr.io/cloud-builders/docker
-    id: build-auth-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest','services/auth_engine']
-
-  - name: gcr.io/cloud-builders/docker
-    id: build-reporting-engine-api
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest','services/reporting_engine']
-
-options:
-  logging: CLOUD_LOGGING_ONLY
-
-# Lista de imágenes a subir automáticamente a Artifact Registry
+# Lista de imágenes (solo latest) para consistencia con UI; no es estrictamente necesario
+# porque ya hicimos docker push manual. Mantenerlos ayuda a observar en interfaz.
 images:
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest
@@ -71,7 +136,3 @@ images:
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest
-
-# Nota: cuando verifiques que funciona correctamente, puedes eliminar el step 'verify-dockerfiles' para acelerar la build.
-options:
-  logging: CLOUD_LOGGING_ONLY
