@@ -27,21 +27,21 @@ steps:
       - |
         set -euo pipefail
         echo "Lista cruda: '${_SERVICES}'"
-        RAW_INPUT="${_SERVICES}"
-        RAW_INPUT="$(echo "$RAW_INPUT" | tr ',' ' ' )"
-        SERVICES_LIST=""
-        for s in $RAW_INPUT; do
+        raw_input="${_SERVICES}"
+        raw_input="$(echo "$raw_input" | tr ',' ' ' )"
+        services_list=""
+        for s in $raw_input; do
           [ -n "$s" ] || continue
-          SERVICES_LIST+=" $s"
+          services_list+=" $s"
         done
-        SERVICES_LIST="$(echo "$SERVICES_LIST" | xargs)"
-        echo "Servicios normalizados: $SERVICES_LIST"
-        echo "SERVICES_LIST=\"$SERVICES_LIST\"" > /workspace/services.env
+        services_list="$(echo "$services_list" | xargs)"
+        echo "Servicios normalizados: $services_list"
+        echo "services_list=\"$services_list\"" > /workspace/services.env
 
         echo "Verificando Dockerfiles..."
-        for svc in $SERVICES_LIST; do
+        for svc in $services_list; do
           FILE="services/$svc/Dockerfile"
-          if [ -f "$FILE" ]; then
+            if [ -f "$FILE" ]; then
             head_line=$(head -n1 "$FILE" || true)
             if ! grep -Eiq '^(FROM|ARG)' <<< "$head_line"; then
               echo "ADVERTENCIA: Primera línea de $FILE no parece comenzar con FROM o ARG: '$head_line'"
@@ -70,7 +70,7 @@ steps:
         echo "SHORT_SHA: $SHORT_SHA"
         [ -n "${_EXTRA_TAG}" ] && echo "Tag extra: ${_EXTRA_TAG}" || echo "Sin tag extra"
 
-        for svc in $SERVICES_LIST; do
+        for svc in $services_list; do
           IMAGE_BASENAME="${svc//_/-}-api"
           FULL_BASE="$REGISTRY/$IMAGE_BASENAME"
           CONTEXT_DIR="services/$svc"
@@ -117,7 +117,7 @@ steps:
         REGISTRY="us-central1-docker.pkg.dev/$PROJECT_ID/sga-services"
         REGION="${_REGION}"
         echo "Desplegando a Cloud Run en región: $REGION"
-        for svc in $SERVICES_LIST; do
+        for svc in $services_list; do
           IMAGE_BASENAME="${svc//_/-}-api"
           IMAGE="$REGISTRY/$IMAGE_BASENAME:latest"
           SERVICE_NAME="$IMAGE_BASENAME"
