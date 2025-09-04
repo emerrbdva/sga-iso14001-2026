@@ -18,7 +18,8 @@ steps:
     args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest', '--dockerfile=./services/auth_engine/Dockerfile', '.']
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest', '--dockerfile=./services/reporting_engine/Dockerfile', '.']
-
+options:
+  logging: CLOUD_LOGGING_ONLY
 # Le dice a Cloud Build que suba todas las imágenes construidas a Artifact Registry
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest'
@@ -29,4 +30,5 @@ images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest'
+
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest'
