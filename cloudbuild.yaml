@@ -1,28 +1,66 @@
 steps:
-  # Construye la imagen para cada servicio
+  # Paso de verificación para asegurar que todos los Dockerfile existen y mostrar su primera línea
+  - name: gcr.io/cloud-builders/gcloud
+    id: verify-dockerfiles
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        echo "Verificando Dockerfiles...";
+        set -e
+        SERVICES="core_sga ai_engine risk_engine compliance_engine objectives_engine ghg_engine audit_engine reporting_engine"
+        for s in $SERVICES; do
+          if [ -f services/$s/Dockerfile ]; then
+            first=$(head -n1 services/$s/Dockerfile)
+            echo "OK services/$s/Dockerfile (1a línea: $first)"
+          else
+            echo "ERROR: Falta services/$s/Dockerfile" >&2
+            exit 1
+          fi
+        done
+        echo "Verificación completada."
+
+  # Construcción de cada servicio (usa como contexto la carpeta del servicio; Dockerfile estándar llamado 'Dockerfile')
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest','-f','./services/core_sga/Dockerfile','.']
+    id: build-core-sga-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest','services/core_sga']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest','-f','./services/ai_engine/Dockerfile','.']
+    id: build-ai-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest','services/ai_engine']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/risk-engine-api:latest','-f','./services/risk_engine/Dockerfile','.']
+    id: build-risk-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/risk-engine-api:latest','services/risk_engine']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/compliance-engine-api:latest','-f','./services/compliance_engine/Dockerfile','.']
+    id: build-compliance-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/compliance-engine-api:latest','services/compliance_engine']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/objectives-engine-api:latest','-f','./services/objectives_engine/Dockerfile','.']
+    id: build-objectives-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/objectives-engine-api:latest','services/objectives_engine']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest','-f','./services/ghg_engine/Dockerfile','.']
+    id: build-ghg-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest','services/ghg_engine']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest','-f','./services/audit_engine/Dockerfile','.']
+    id: build-audit-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest','services/audit_engine']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest','-f','./services/auth_engine/Dockerfile','.']
+    id: build-auth-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest','services/auth_engine']
+
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest','-f','./services/reporting_engine/Dockerfile','.']
+    id: build-reporting-engine-api
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest','services/reporting_engine']
 
 options:
   logging: CLOUD_LOGGING_ONLY
 
-# Le dice a Cloud Build que suba todas las imágenes construidas a Artifact Registry
+# Lista de imágenes a subir automáticamente a Artifact Registry
 images:
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest
@@ -33,3 +71,7 @@ images:
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest
   - us-central1-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest
+
+# Nota: cuando verifiques que funciona correctamente, puedes eliminar el step 'verify-dockerfiles' para acelerar la build.
+options:
+  logging: CLOUD_LOGGING_ONLY
