@@ -228,8 +228,8 @@ steps:
         source /workspace/helper.sh
         builder_flag="$(lower_bool "${_BUILDER}")"
         if [ "$builder_flag" != "kaniko" ]; then
-          echo "Saltando Kaniko (builder=$builder_flag)"
-          exit 0
+            echo "Saltando Kaniko (builder=$builder_flag)"
+            exit 0
         fi
         registry="${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services"
         extra_tag="${_EXTRA_TAG}"
@@ -239,7 +239,7 @@ steps:
           [ -d "$context_dir" ] || { echo "ERROR: No existe $context_dir"; exit 1; }
           image_base="${svc//_/-}-api"
           tags="$(expand_image_tags "$registry" "$image_base" "$SHORT_SHA" "$extra_tag" "${_DATE_TAG}")"
-          destinations=""
+            destinations=""
           for t in $tags; do
             destinations+=" --destination=$registry/$image_base:$t"
           done
@@ -425,15 +425,15 @@ steps:
             echo "Generando attestation de 'provenance' (simplificada)"
             tmp_pred="/workspace/provenance-${image_base}.json"
             cat > "$tmp_pred" <<EOFP
-{
-  "buildType": "custom-cloudbuild",
-  "buildId": "$BUILD_ID",
-  "projectId": "$PROJECT_ID",
-  "commitShort": "$SHORT_SHA",
-  "image": "$full_ref",
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-}
-EOFP
+            {
+              "buildType": "custom-cloudbuild",
+              "buildId": "$BUILD_ID",
+              "projectId": "$PROJECT_ID",
+              "commitShort": "$SHORT_SHA",
+              "image": "$full_ref",
+              "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            }
+            EOFP
             if [ -n "$kms_key" ]; then
               cosign attest --yes --key "$kms_key" --predicate "$tmp_pred" --type slsaprovenance "$full_ref"
             else
@@ -530,12 +530,12 @@ EOFP
         echo "========================"
 
 images:
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/risk-engine-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/compliance-engine-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/objectives-engine-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest
-  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/core-sga-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/ai-engine-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/risk-engine-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/compliance-engine-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/objectives-engine-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/ghg-engine-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/audit-engine-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/auth-engine-api:latest"
+  - "${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/sga-services/reporting-engine-api:latest"
