@@ -245,8 +245,8 @@ steps:
           done
           echo "===> Kaniko build $svc -> $tags"
           /kaniko/executor \
-            --context="dir://$PWD/$context_dir" \
-            --dockerfile="$PWD/$context_dir/Dockerfile" \
+            --context="dir://$(pwd)/$context_dir" \
+            --dockerfile="$(pwd)/$context_dir/Dockerfile" \
             $destinations \
             --cache=true \
             --cache-ttl="${_KANIKO_CACHE_TTL}" \
